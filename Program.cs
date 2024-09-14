@@ -41,7 +41,7 @@ using System.Runtime.InteropServices;
 
 class Program
 {
-    static readonly int SORTER_BATCH_SIZE = 10;
+    static readonly int SORTER_BATCH_SIZE = 20;
     // static readonly int WRITE_FILE_SIGNAL = 1;
 
     static readonly Stopwatch timer = new Stopwatch();
@@ -53,7 +53,10 @@ class Program
     static readonly System.Threading.Lock cl4 = new System.Threading.Lock();
 
     static readonly BlockingCollection<int> messageQueue = new BlockingCollection<int>();
-    static readonly Queue<int> queueSorter100ToWriterB = new Queue<int>();
+    static readonly BlockingCollection<List<int>> messageQueue2 = new BlockingCollection<List<int>>();
+    static readonly BlockingCollection<List<int>> messageQueue3 = new BlockingCollection<List<int>>();
+    static readonly BlockingCollection<int> messageQueue4 = new BlockingCollection<int>();
+    // static readonly Queue<int> queueSorter100ToWriterB = new Queue<int>();
     
     // static readonly BufferBlock<int> messageQueue = new BufferBlock<int>();
 
@@ -68,9 +71,11 @@ class Program
             var numGenerator2 = Task.Run( () => taskNumberGenerator("RNG2", 1001, 2000));
             var numGenerator3 = Task.Run( () => taskNumberGenerator("RNG3", 2001, 3000));
 
+            var primeFilter = Task.Run( () => taskFilterPrimeNumber());
             var first100Sorter = Task.Run( () => taskSortBatchNumber(SORTER_BATCH_SIZE));
             
             var writerB = Task.Run( () => taskWriteLineToSortedFile() );
+            var writerA = Task.Run( () => taskWriteLineToPrimeFile() );
 
             // first100Sorter.Start();
 
@@ -87,6 +92,8 @@ class Program
                 numGenerator2,
                 numGenerator3,
                 first100Sorter,
+                primeFilter,
+                writerA,
                 writerB
             );
 
@@ -112,7 +119,7 @@ class Program
     private static void taskSortBatchNumber(int SORTER_BATCH_SIZE) {
         int cursorIndex = 0;
         int[] sortBuffer = new int[SORTER_BATCH_SIZE]; // only allocate one time and for the whole program
-
+        // lock(cl4) {
         while (true)
         {
             if (!messageQueue.IsCompleted)
@@ -128,15 +135,15 @@ class Program
                             if (cursorIndex == SORTER_BATCH_SIZE) {
                                 Array.Sort(sortBuffer);
                                 cursorIndex = 0;
-
-                                // lock(cl4) {
-                                    foreach (int num in sortBuffer) {
+                                    // lock(cl4) {
+                                    // foreach (int num in sortBuffer) {
                                         // Console.Write($"{num},");
-                                            queueSorter100ToWriterB.Enqueue(num);
-                                            Console.WriteLine("-----{0}",queueSorter100ToWriterB.Count);
+                                            messageQueue2.Add(new List<int>(sortBuffer));
+                                            messageQueue3.Add(new List<int>(sortBuffer));
+                                            // Console.WriteLine("-----{0}",messageQueue2.Count);
                                         // }
-                                    // }
-                                }
+                                    // }}
+                                // }
                             }
                             sortBuffer[cursorIndex] = nextInt;
                             ++cursorIndex;
@@ -168,38 +175,205 @@ class Program
             //     ++cursorIndex;
             // }
         }
+        //}
     }
 
     private static void taskWriteLineToSortedFile()
     {
-            Console.WriteLine("dsdadasd");
-            var sbuilder = new StringBuilder();
-            while (true)
+        // lock(cl4) {
+        var sbuilder = new StringBuilder();
+        while (true)
+        {
+            lock(cl4) {
+            if (!messageQueue2.IsCompleted)
             {
-                // lock(cl4) {
-                if (queueSorter100ToWriterB.Count > 0)
-                {
-                    // if (cursorIndex == SORTER_BATCH_SIZE) {
-                    //     Array.Sort(sortBuffer);
-                    //     foreach (int num of sortBuffer) {
-                    //         Console.Write($"{num},");
-                    //     }
-                    //     cursorIndex = 0;
-                    // }
-                    // sortBuffer[cursorIndex] = messageQueue.Dequeue();
-                    // ++cursorIndex;
-                    
-                    // form a StringBuilder before write to file to avoid access file to many times
-                    sbuilder.Append(queueSorter100ToWriterB.Dequeue()).Append(Environment.NewLine);
-                    
-                    if (sbuilder.Length == SORTER_BATCH_SIZE)
+                // try
+                // {
+                    // lock(cl3) {
+                    List<int> nextInt;
+                    try
                     {
-                        Console.WriteLine(sbuilder.ToString());
-                        Console.WriteLine("-----------------Write To Files------------------");
-                        sbuilder.Length = 0;
+                        if (messageQueue2.TryTake(out nextInt))
+                        {
+                            // foreach (int num in nextList)
+                            // {
+                            //     sbuilder.Append(num).Append(Environment.NewLine);
+                                
+                            //     Console.WriteLine("++++++++++{0}", sbuilder.Length);
+                                
+                                // if (sbuilder.Length > SORTER_BATCH_SIZE)
+                                // {
+                                    Console.WriteLine(String.Join(Environment.NewLine, nextInt));
+                                    Console.WriteLine("-----------------Write To Files------------------");
+                                    sbuilder.Length = 0;
+                                // }
+                            // }
+                        }
                     }
-                }
+                    catch (OperationCanceledException)
+                    {
+                        Console.WriteLine("Taking canceled.");
+                        break;
+                    }
+                    // }
+                // }
+                // catch (InvalidOperationException) {
+                //     Console.WriteLine("Error Adding To Message Queue!");
+                // }
             }
+            }
+            // if (messageQueue.Count > 0)
+            // {
+            //     if (cursorIndex == SORTER_BATCH_SIZE) {
+            //         Array.Sort(sortBuffer);
+            //         foreach (int num in sortBuffer) {
+            //             Console.Write($"{num},");
+            //         }
+            //         cursorIndex = 0;
+            //         // queueSorter100ToWriterB.Enqueue(WRITE_FILE_SIGNAL);
+            //         // Console.WriteLine(sortBuffer.Join(","));
+            //     }
+            //     messageQueue.TryTake(out sortBuffer[cursorIndex]);
+            //     ++cursorIndex;
+            // }
+        }
+        //}
+            // var sbuilder = new StringBuilder();
+            // lock(cl4) {
+            // while (true)
+            // {
+            //     // lock(cl4) {
+            //     if (queueSorter100ToWriterB.Count > 0)
+            //     {
+            //         // if (cursorIndex == SORTER_BATCH_SIZE) {
+            //         //     Array.Sort(sortBuffer);
+            //         //     foreach (int num of sortBuffer) {
+            //         //         Console.Write($"{num},");
+            //         //     }
+            //         //     cursorIndex = 0;
+            //         // }
+            //         // sortBuffer[cursorIndex] = messageQueue.Dequeue();
+            //         // ++cursorIndex;
+                    
+            //         // form a StringBuilder before write to file to avoid access file to many times
+            //         sbuilder.Append(queueSorter100ToWriterB.Dequeue()).Append(Environment.NewLine);
+                    
+            //         Console.WriteLine("++++++++++{0}", sbuilder.Length);
+                    
+            //         if (sbuilder.Length > SORTER_BATCH_SIZE)
+            //         {
+            //             Console.WriteLine(sbuilder.ToString());
+            //             Console.WriteLine("-----------------Write To Files------------------");
+            //             sbuilder.Length = 0;
+            //         }
+            //     }
+            // }
+            // }
         // }
+    }
+
+    private static void taskFilterPrimeNumber()
+    {
+        // lock(cl4) {
+        // var sbuilder = new StringBuilder();
+        while (true)
+        {
+            lock(cl4) {
+            if (!messageQueue3.IsCompleted)
+            {
+                // try
+                // {
+                    // lock(cl3) {
+                    List<int> nextIntList;
+                    try
+                    {
+                        if (messageQueue3.TryTake(out nextIntList))
+                        {
+                            foreach (int num in nextIntList)
+                            {
+                                if (num > 2 && num%2 == 1 && isPrimePreChecked(num)) {
+                                    messageQueue4.Add(num);
+                                }
+                            }
+                            // Console.WriteLine(String.Join(Environment.NewLine, nextInt));
+                            // Console.WriteLine("-----------------Write To Prime Files------------------");
+                            // sbuilder.Length = 0;
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        Console.WriteLine("Taking canceled.");
+                        break;
+                    }
+                    // }
+                // }
+                // catch (InvalidOperationException) {
+                //     Console.WriteLine("Error Adding To Message Queue!");
+                // }
+            }
+            }
+        }
+    }
+
+    private static void taskWriteLineToPrimeFile()
+    {
+        // lock(cl4) {
+        var sbuilder = new StringBuilder();
+        while (true)
+        {
+            lock(cl4) {
+            if (!messageQueue4.IsCompleted)
+            {
+                // try
+                // {
+                    // lock(cl3) {
+                    int nextInt;
+                    try
+                    {
+                        if (messageQueue4.TryTake(out nextInt))
+                        {
+                            // foreach (int num in nextList)
+                            // {
+                                sbuilder.Append(nextInt).Append(Environment.NewLine);
+                                
+                            //     Console.WriteLine("++++++++++{0}", sbuilder.Length);
+                                
+                                if (sbuilder.Length > SORTER_BATCH_SIZE)
+                                {
+                                    // sbuilder.Append(nextInt).Append(Environment.NewLine);
+                                    Console.WriteLine(String.Join(Environment.NewLine, nextInt));
+                                    Console.WriteLine("-----------------Write To Primeeeeeeeeeeeeeeeeeeeeeeeeee Files------------------");
+                                    sbuilder.Length = 0;
+                                }
+                            // }
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        Console.WriteLine("Taking canceled.");
+                        break;
+                    }
+                    // }
+                // }
+                // catch (InvalidOperationException) {
+                //     Console.WriteLine("Error Adding To Message Queue!");
+                // }
+            }
+            }
+
+        }
+    }
+
+    public static bool isPrimePreChecked(int number)
+    {
+        int sqrtNumber = (int)Math.Sqrt(number);
+        for (int i=3; i<sqrtNumber; ++i)
+        {
+            if (number%i == 0)
+            {
+                return false;
+            }
+        }
+        return true;
     }
 }
