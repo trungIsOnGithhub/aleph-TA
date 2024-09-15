@@ -46,18 +46,18 @@ class Program
 
     static readonly Stopwatch timer = new Stopwatch();
     
-    static readonly System.Threading.Lock cl = new System.Threading.Lock();
-    static readonly System.Threading.Lock cl2 = new System.Threading.Lock();
-    static readonly System.Threading.Lock cl3 = new System.Threading.Lock();
+    // static readonly System.Threading.Lock cl = new System.Threading.Lock();
+    // static readonly System.Threading.Lock cl2 = new System.Threading.Lock();
+    // static readonly System.Threading.Lock cl3 = new System.Threading.Lock();
 
-    static readonly System.Threading.Lock cl4 = new System.Threading.Lock();
+    // static readonly System.Threading.Lock cl4 = new System.Threading.Lock();
 
-    static readonly BlockingCollection<int> messageQueue = new BlockingCollection<int>();
+    static readonly ConcurrentQueue<int> messageQueue = new ConcurrentQueue<int>();
     static readonly BlockingCollection<List<int>> messageQueue2 = new BlockingCollection<List<int>>();
     static readonly BlockingCollection<List<int>> messageQueue3 = new BlockingCollection<List<int>>();
     static readonly BlockingCollection<int> messageQueue4 = new BlockingCollection<int>();
 
-    static readonly Semaphore _pool = new Semaphore(initialCount: 0, maximumCount: 4);
+    static readonly SemaphoreSlim _pool = new SemaphoreSlim(initialCount: 0, maximumCount: 1);
 
     // static readonly Queue<int> queueSorter100ToWriterB = new Queue<int>();
     
@@ -72,13 +72,13 @@ class Program
 
             var numGenerator1 = Task.Run( () => taskNumberGenerator("RNG1", 1, 1000));
             var numGenerator2 = Task.Run( () => taskNumberGenerator("RNG2", 1001, 2000));
-            var numGenerator3 = Task.Run( () => taskNumberGenerator("RNG3", 2001, 3000));
+            // var numGenerator3 = Task.Run( () => taskNumberGenerator("RNG3", 2001, 3000));
 
-            // var primeFilter = Task.Run( () => taskFilterPrimeNumber());
+            var primeFilter = Task.Run( () => taskFilterPrimeNumber());
             var first100Sorter = Task.Run( () => taskSortBatchNumber(SORTER_BATCH_SIZE));
             
-            // var writerB = Task.Run( () => taskWriteLineToSortedFile() );
-            // var writerA = Task.Run( () => taskWriteLineToPrimeFile() );
+            var writerB = Task.Run( () => taskWriteLineToSortedFile() );
+            var writerA = Task.Run( () => taskWriteLineToPrimeFile() );
 
             // first100Sorter.Start();
 
@@ -91,12 +91,12 @@ class Program
             // numberGeneratorWorker.Start();
             // showMessageQueueInfoWorker.Start();
             Console.WriteLine("Main thread calls Release All");
-            _pool.Release(releaseCount: 4);
+            _pool.Release(releaseCount: 1);
 
             Task.WaitAll(
                 numGenerator1,
                 numGenerator2,
-                numGenerator3,
+                // numGenerator3,
                 first100Sorter
                 // primeFilter,
                 // writerA,
@@ -112,7 +112,7 @@ class Program
 
     private static void taskNumberGenerator(String name, Int32 minInt, Int32 maxInt) {
         // lock(lck) {
-            for (int i=0; ; ++i) {
+            for (int i=0; i<40; ++i) {
                 Int32 randomInt = (new Random()).Next(minInt, maxInt);
                 _pool.WaitOne();
                 messageQueue.Add(randomInt);
@@ -130,16 +130,18 @@ class Program
         // lock(cl4) {
         while (true)
         {
-            _pool.WaitOne();
             // if (!messageQueue.IsCompleted)
             // {
                 // try
                 // {
                     // lock(cl3) {
                     int nextInt;
+                    _pool.WaitOne();
                     try
                     {
-                        if (messageQueue.TryTake(out nextInt))
+                        nextInt = messageQueue.Dequeue();
+                        _pool.Release();
+                        if (takeOutSuccess)
                         {
                             if (cursorIndex == SORTER_BATCH_SIZE) {
                                 Array.Sort(sortBuffer);
@@ -160,8 +162,8 @@ class Program
                     }
                     catch (OperationCanceledException)
                     {
-                        Console.WriteLine("Taking canceled.");
-                        break;
+                        // Console.WriteLine("Taking canceled.");
+                        // break;
                     }
                     // }
                 // }
@@ -183,7 +185,6 @@ class Program
             //     messageQueue.TryTake(out sortBuffer[cursorIndex]);
             //     ++cursorIndex;
             // }
-            _pool.Release();
         }
         //}
     }
@@ -194,7 +195,7 @@ class Program
         var sbuilder = new StringBuilder();
         while (true)
         {
-            lock(cl4) {
+            // lock(cl4) {
             if (!messageQueue2.IsCompleted)
             {
                 // try
@@ -231,7 +232,7 @@ class Program
                 //     Console.WriteLine("Error Adding To Message Queue!");
                 // }
             }
-            }
+            // }
             // if (messageQueue.Count > 0)
             // {
             //     if (cursorIndex == SORTER_BATCH_SIZE) {
@@ -288,7 +289,7 @@ class Program
         // var sbuilder = new StringBuilder();
         while (true)
         {
-            lock(cl4) {
+            // lock(cl4) {
             if (!messageQueue3.IsCompleted)
             {
                 // try
@@ -321,7 +322,7 @@ class Program
                 //     Console.WriteLine("Error Adding To Message Queue!");
                 // }
             }
-            }
+            // }
         }
     }
 
@@ -331,7 +332,7 @@ class Program
         var sbuilder = new StringBuilder();
         while (true)
         {
-            lock(cl4) {
+            // lock(cl4) {
             if (!messageQueue4.IsCompleted)
             {
                 // try
@@ -369,7 +370,7 @@ class Program
                 //     Console.WriteLine("Error Adding To Message Queue!");
                 // }
             }
-            }
+            // }
 
         }
     }
