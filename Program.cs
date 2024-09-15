@@ -8,6 +8,11 @@ using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 
+// https://learn.microsoft.com/en-us/dotnet/api/system.threading.semaphoreslim?view=net-8.0
+// https://stackoverflow.com/questions/62814/difference-between-binary-semaphore-and-mutex
+// https://stackoverflow.com/questions/10010748/what-are-the-differences-between-concurrentqueue-and-blockingcollection-in-net
+// https://jeremyshanks.com/fastest-way-to-write-text-files-to-disk-in-c/
+
 class Program
 {
     // static readonly string primeFilePath = ;
@@ -46,7 +51,7 @@ class Program
 
             var numGenerator1 = Task.Run( () => taskNumberGenerator("RNG1", 1, 1000));
             var numGenerator2 = Task.Run( () => taskNumberGenerator("RNG2", 1001, 2000));
-            // var numGenerator3 = Task.Run( () => taskNumberGenerator("RNG3", 2001, 3000));
+            var numGenerator3 = Task.Run( () => taskNumberGenerator("RNG3", 2001, 3000));
 
             var primeFilter = Task.Run( () => taskFilterPrimeNumber());
             var first100Sorter = Task.Run( () => taskSortBatchNumber(SORTER_BATCH_SIZE));
@@ -62,7 +67,7 @@ class Program
             Task.WaitAll(
                 numGenerator1,
                 numGenerator2,
-                // numGenerator3,
+                numGenerator3,
                 first100Sorter,
                 primeFilter,
                 writerA,
