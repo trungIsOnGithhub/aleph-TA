@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO;
 using System.Text;
 using System.Threading;
 using System.Diagnostics;
@@ -6,42 +7,14 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
-// using System.Threading.Tasks.Dataflow;
-
-// public class CustomMinHeapOperation
-// {
-//     public static int getTop(int arr, int n)
-//     {
-//         int result = arr[0];
-//         arr[0] = arr[n];
-//         Heapify(arr, n-1, 0);
-//         return result;
-//     }
-//     public static void Heapify(int[] arr, int n, int i)
-//     {
-//         int smallest = i;
-//         int leftChild = 2*i + 1, rightChild = 2*i + 2;
-
-//         if (leftChild < n && arr[leftChild] < arr[smallest])
-//             smallest = leftChild;
-
-//         if (rightChild < n && arr[rightChild] < arr[smallest])
-//             smallest = rightChild;
-
-//         if (smallest != i)
-//         {
-//             int temp = arr[i];
-//             arr[i] = arr[smallest];
-//             arr[smallest] = temp;
-
-//             Heapify(arr, n, smallest);
-//         }
-//     }
-// }
 
 class Program
 {
-    static readonly int SORTER_BATCH_SIZE = 20;
+    // static readonly string primeFilePath = ;
+    static readonly StreamWriter sw = new StreamWriter("primes.txt", true);
+    static readonly string sortedFilePath = "sorted.txt";
+
+    static readonly int SORTER_BATCH_SIZE = 1000;
     // static readonly int WRITE_FILE_SIGNAL = 1;
 
     static readonly Stopwatch timer = new Stopwatch();
@@ -57,7 +30,8 @@ class Program
     static readonly BlockingCollection<List<int>> messageQueue3 = new BlockingCollection<List<int>>();
     static readonly BlockingCollection<int> messageQueue4 = new BlockingCollection<int>();
 
-    static readonly SemaphoreSlim _pool = new SemaphoreSlim(initialCount: 0, maximumCount: 1);
+    static readonly Semaphore _pool = new Semaphore(0,1);
+    // static readonly Semaphore _pool2 = new Semaphore(0,1);
 
     // static readonly Queue<int> queueSorter100ToWriterB = new Queue<int>();
     
@@ -80,30 +54,24 @@ class Program
             var writerB = Task.Run( () => taskWriteLineToSortedFile() );
             var writerA = Task.Run( () => taskWriteLineToPrimeFile() );
 
-            // first100Sorter.Start();
-
-            // numGenerator1.Start();
-            // numGenerator2.Start();
-            // numGenerator3.Start();
-
-            // writerB.Wait();
-
             // numberGeneratorWorker.Start();
             // showMessageQueueInfoWorker.Start();
-            Console.WriteLine("Main thread calls Release All");
-            _pool.Release(releaseCount: 1);
+            Console.WriteLine("Main thread calls Release Semaphore");
+            _pool.Release(1);
 
             Task.WaitAll(
                 numGenerator1,
                 numGenerator2,
                 // numGenerator3,
-                first100Sorter
-                // primeFilter,
-                // writerA,
-                // writerB
+                first100Sorter,
+                primeFilter,
+                writerA,
+                writerB
             );
 
-            // cts.Dispose();
+            _pool.Dispose();
+            sw.Dispose();
+            // _pool2.Dispose();
         // }
 
         Console.WriteLine($"Execution Time: {timer.Elapsed.ToString()}");
@@ -112,12 +80,15 @@ class Program
 
     private static void taskNumberGenerator(String name, Int32 minInt, Int32 maxInt) {
         // lock(lck) {
-            for (int i=0; i<40; ++i) {
+            for (int i=0; ; ++i) {
                 Int32 randomInt = (new Random()).Next(minInt, maxInt);
+
                 _pool.WaitOne();
-                messageQueue.Add(randomInt);
-                Console.WriteLine($"{name}: {randomInt} --> QueueCount:{messageQueue.Count}");
+                messageQueue.Enqueue(randomInt);
                 _pool.Release();
+
+                Console.WriteLine($"{name}: {randomInt}");
+                // _pool.Release();
             }
         // }
         // Thread.Sleep(5000);
@@ -135,14 +106,24 @@ class Program
                 // try
                 // {
                     // lock(cl3) {
-                    int nextInt;
-                    _pool.WaitOne();
-                    try
-                    {
-                        nextInt = messageQueue.Dequeue();
+                    int nextInt = 0;
+                    // try
+                    // {
+                        var takeOutSuccess = false;
+                        _pool.WaitOne();
+                        // takeOutSuccess = messageQueue.Count > 0;
+                        if (messageQueue.Count > 0) {
+                            takeOutSuccess = messageQueue.TryDequeue(out nextInt);
+
+                            Console.WriteLine("Taked +++++++++++++++++{0}", nextInt);
+                        }
+                        Console.WriteLine($"QueueCount: {messageQueue.Count}");
                         _pool.Release();
+
                         if (takeOutSuccess)
                         {
+                            sortBuffer[cursorIndex++] = nextInt;
+
                             if (cursorIndex == SORTER_BATCH_SIZE) {
                                 Array.Sort(sortBuffer);
                                 cursorIndex = 0;
@@ -156,15 +137,13 @@ class Program
                                     // }}
                                 // }
                             }
-                            sortBuffer[cursorIndex] = nextInt;
-                            ++cursorIndex;
                         }
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        // Console.WriteLine("Taking canceled.");
-                        // break;
-                    }
+                    // }
+                    // catch (OperationCanceledException)
+                    // {
+                    //     // Console.WriteLine("Taking canceled.");
+                    //     // break;
+                    // }
                     // }
                 // }
                 // catch (InvalidOperationException) {
@@ -214,8 +193,18 @@ class Program
                                 
                                 // if (sbuilder.Length > SORTER_BATCH_SIZE)
                                 // {
-                                    Console.WriteLine(String.Join(Environment.NewLine, nextInt));
-                                    Console.WriteLine("-----------------Write To Sortedddddddddddddddd Files------------------");
+                                    foreach (int num in nextInt)
+                                    {
+                                        sbuilder.Append(num)
+                                                .Append(Environment.NewLine);
+                                    }
+                                    sbuilder.Append(Environment.NewLine).Append(Environment.NewLine);
+        
+                                    File.AppendAllText(
+                                        sortedFilePath,
+                                        sbuilder.ToString()
+                                    );
+                                    // Console.WriteLine("-----------------Write To Sortedddddddddddddddd Files------------------");
                                     sbuilder.Length = 0;
                                 // }
                             // }
@@ -302,8 +291,9 @@ class Program
                         {
                             foreach (int num in nextIntList)
                             {
-                                if (num > 2 && num%2 == 1 && isPrimePreChecked(num)) {
+                                if (isPrimePreChecked(num)) {
                                     messageQueue4.Add(num);
+                                    Console.WriteLine("888888888888888888: {0}", num);
                                 }
                             }
                             // Console.WriteLine(String.Join(Environment.NewLine, nextInt));
@@ -333,29 +323,39 @@ class Program
         while (true)
         {
             // lock(cl4) {
+            // Console.WriteLine("111111111111111 {0}");
             if (!messageQueue4.IsCompleted)
             {
                 // try
                 // {
                     // lock(cl3) {
-                    int nextInt;
+                    int nextInt = 0;
+                    // Console.WriteLine("22222222222 {0}", nextInt);
                     try
                     {
                         if (messageQueue4.TryTake(out nextInt))
                         {
                             // foreach (int num in nextList)
                             // {
-                                sbuilder.Append(nextInt).Append(Environment.NewLine);
+                                // append char or int each time give more atomicity than whole string
+                            Console.WriteLine("00000000000000000000 {0}", nextInt);
+                            sw.WriteLine(nextInt);
+                            //     sbuilder.Append(nextInt)
+                            //             .Append(Environment.NewLine);
                                 
-                            //     Console.WriteLine("++++++++++{0}", sbuilder.Length);
+                            // //     Console.WriteLine("++++++++++{0}", sbuilder.Length);
                                 
-                                if (sbuilder.Length > SORTER_BATCH_SIZE)
-                                {
-                                    // sbuilder.Append(nextInt).Append(Environment.NewLine);
-                                    Console.WriteLine(String.Join(Environment.NewLine, nextInt));
-                                    Console.WriteLine("-----------------Write To Primeeeeeeeeeeeeeeeeeeeeeeeeee Files------------------");
-                                    sbuilder.Length = 0;
-                                }
+                            //     if (sbuilder.Length > SORTER_BATCH_SIZE)
+                            //     {
+                            //         sbuilder.Append(nextInt)
+                            //             .Append(Environment.NewLine)
+                            //             .Append(Environment.NewLine);
+
+                            //         // Console.WriteLine(String.Join(Environment.NewLine, nextInt));using System;
+                            //         File.AppendAllText(primeFilePath, sbuilder.ToString());
+                            //         Console.WriteLine("-----------------Write To Primeeeeeeeeeeeeeeeeeeeeeeeeee Files------------------");
+                            //         sbuilder.Length = 0;
+                            //     }
                             // }
                         }
                     }
@@ -377,13 +377,14 @@ class Program
 
     public static bool isPrimePreChecked(int number)
     {
-        int sqrtNumber = (int)Math.Sqrt(number);
-        for (int i=3; i<sqrtNumber; ++i)
+        // no assign to intermmediate variable for speed
+        if (number < 2) return false;
+        if (number % 2 == 0) return (number == 2);
+
+        // I used square root to void i*i multiply overflow
+        for (int i=3; i <= (int)Math.Sqrt((double)number); i+=2)
         {
-            if (number%i == 0)
-            {
-                return false;
-            }
+            if (number%i == 0) return false;
         }
         return true;
     }
