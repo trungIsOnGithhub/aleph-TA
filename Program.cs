@@ -15,14 +15,18 @@ using System.Runtime.InteropServices;
 
 class Program
 {
-    // static readonly string primeFilePath = ;
-    static readonly StreamWriter sw = new StreamWriter("primes.txt", true);
-    static readonly string sortedFilePath = "sorted.txt";
+    // Readonly - Ensure Behavior When Passing Resource Between Many Threads
+    static readonly StreamWriter pw = new StreamWriter("primes.txt", true);
+    static readonly StreamWriter sw = new StreamWriter("sorted.txt", true);
 
-    static readonly int SORTER_BATCH_SIZE = 1000;
+    static readonly int SORTER_BATCH_SIZE = 21;
+
+    static readonly SemaphoreSlim _pool = new SemaphoreSlim(0,1);
+
+    static readonly string[] generatorName = {"RNG1", "RNG2", "RNG3"};
     // static readonly int WRITE_FILE_SIGNAL = 1;
 
-    static readonly Stopwatch timer = new Stopwatch();
+    // static readonly Stopwatch timer = new Stopwatch();
     
     // static readonly System.Threading.Lock cl = new System.Threading.Lock();
     // static readonly System.Threading.Lock cl2 = new System.Threading.Lock();
@@ -30,80 +34,79 @@ class Program
 
     // static readonly System.Threading.Lock cl4 = new System.Threading.Lock();
 
+    // Thread-Safe version of Queue but Lock-Free, Need Concurrency Control
     static readonly ConcurrentQueue<int> messageQueue = new ConcurrentQueue<int>();
-    static readonly BlockingCollection<List<int>> messageQueue2 = new BlockingCollection<List<int>>();
-    static readonly BlockingCollection<List<int>> messageQueue3 = new BlockingCollection<List<int>>();
+
+    static readonly BlockingCollection<int> messageQueue2 = new BlockingCollection<int>();
+    static readonly BlockingCollection<int> messageQueue3 = new BlockingCollection<int>();
     static readonly BlockingCollection<int> messageQueue4 = new BlockingCollection<int>();
 
-    static readonly Semaphore _pool = new Semaphore(0,1);
-    // static readonly Semaphore _pool2 = new Semaphore(0,1);
-
-    // static readonly Queue<int> queueSorter100ToWriterB = new Queue<int>();
-    
-    // static readonly BufferBlock<int> messageQueue = new BufferBlock<int>();
+    static readonly ConcurrentDictionary<int,int> generatorDict = new ConcurrentDictionary<int,int>();
 
     static void Main(string[] args)
     {
         // timer.Start();
+        var nowTime = DateTime.Now;
 
-        // for (Int32 i=0; i<10; ++i) {
-            // var cts = new CancellationTokenSource();
+        var numGenerator1 = Task.Run( () => taskNumberGenerator(0, nowTime.Hour) );
+        var numGenerator2 = Task.Run( () => taskNumberGenerator(1, nowTime.Minute) );
+        var numGenerator3 = Task.Run( () => taskNumberGenerator(2, nowTime.Second) );
 
-            var numGenerator1 = Task.Run( () => taskNumberGenerator("RNG1", 1, 1000));
-            var numGenerator2 = Task.Run( () => taskNumberGenerator("RNG2", 1001, 2000));
-            var numGenerator3 = Task.Run( () => taskNumberGenerator("RNG3", 2001, 3000));
+        var primeFilter = Task.Run( () => taskFilterPrimeNumber()) ;
+        var first1000Sorter = Task.Run( () => taskSortBatchNumber() );
+        
+        var writerB = Task.Run( () => taskWriteLineToSortedFile() );
+        var writerA = Task.Run( () => taskWriteLineToPrimeFile() );
 
-            var primeFilter = Task.Run( () => taskFilterPrimeNumber());
-            var first100Sorter = Task.Run( () => taskSortBatchNumber(SORTER_BATCH_SIZE));
-            
-            var writerB = Task.Run( () => taskWriteLineToSortedFile() );
-            var writerA = Task.Run( () => taskWriteLineToPrimeFile() );
+        // Start Allow 1 Thread to enter Semaphore
+        // which was previously 0 mean no thread is able to enter
+        _pool.Release(1);
+        Task.WaitAll(
+            numGenerator1,
+            numGenerator2,
+            numGenerator3,
+            first1000Sorter,
+            primeFilter,
+            writerA,
+            writerB
+        );
 
-            // numberGeneratorWorker.Start();
-            // showMessageQueueInfoWorker.Start();
-            Console.WriteLine("Main thread calls Release Semaphore");
-            _pool.Release(1);
+        _pool.Dispose();
+        sw.Dispose();
+        pw.Dispose();
 
-            Task.WaitAll(
-                numGenerator1,
-                numGenerator2,
-                numGenerator3,
-                first100Sorter,
-                primeFilter,
-                writerA,
-                writerB
-            );
-
-            _pool.Dispose();
-            sw.Dispose();
-            // _pool2.Dispose();
-        // }
-
-        Console.WriteLine($"Execution Time: {timer.Elapsed.ToString()}");
+        // Console.WriteLine($"Execution Time: {timer.Elapsed.ToString()}");
         // timer.Stop();
     }
 
-    private static void taskNumberGenerator(String name, Int32 minInt, Int32 maxInt) {
-        // lock(lck) {
-            for (int i=0; ; ++i) {
-                Int32 randomInt = (new Random()).Next(minInt, maxInt);
+    // private static void decideNumberGenerator
+    private static void taskNumberGenerator(int generatorIndex, int seed) {
+        var randomizer = new Random(seed);
 
-                _pool.WaitOne();
-                messageQueue.Enqueue(randomInt);
-                _pool.Release();
+        for (int i=0; i<7; ++i) {
+            int randomInt = randomizer.Next(1, 10000);
 
-                Console.WriteLine($"{name}: {randomInt}");
-                // _pool.Release();
+            // using SemaphoreSlim must ensure wait time is short
+            _pool.Wait();
+            messageQueue.Enqueue(randomInt);
+            _pool.Release();
+
+            if (!generatorDict.ContainsKey(randomInt))
+            {
+                generatorDict.TryAdd(randomInt, generatorIndex);
             }
-        // }
-        // Thread.Sleep(5000);
-        // messageQueue.CompleteAdding();
+
+            Console.WriteLine($"Index-{generatorIndex} gen: {randomInt}");
+            // _pool.Release();
+        }
     }
 
-    private static void taskSortBatchNumber(int SORTER_BATCH_SIZE) {
+    private static void taskSortBatchNumber() {
         int cursorIndex = 0;
-        int[] sortBuffer = new int[SORTER_BATCH_SIZE]; // only allocate one time and for the whole program
-        // lock(cl4) {
+        int[] sortBuffer = new int[SORTER_BATCH_SIZE]; // allocate one time and for the whole program
+        // I chose Array as I thought It should be more Efficent compare to List
+
+        int nextInt = 0;
         while (true)
         {
             // if (!messageQueue.IsCompleted)
@@ -111,18 +114,16 @@ class Program
                 // try
                 // {
                     // lock(cl3) {
-                    int nextInt = 0;
                     // try
                     // {
                         var takeOutSuccess = false;
-                        _pool.WaitOne();
+                        _pool.Wait();
                         // takeOutSuccess = messageQueue.Count > 0;
                         if (messageQueue.Count > 0) {
                             takeOutSuccess = messageQueue.TryDequeue(out nextInt);
-
-                            Console.WriteLine("Taked +++++++++++++++++{0}", nextInt);
+                            Console.WriteLine("Taked ((++++++++++++++++++++{0}", nextInt);
+                            Console.WriteLine($"QueueCount: {messageQueue.Count}");
                         }
-                        Console.WriteLine($"QueueCount: {messageQueue.Count}");
                         _pool.Release();
 
                         if (takeOutSuccess)
@@ -130,17 +131,16 @@ class Program
                             sortBuffer[cursorIndex++] = nextInt;
 
                             if (cursorIndex == SORTER_BATCH_SIZE) {
+                                // A Heap-Based or Balanced-Tree Based Data Structure, I considered it to be Inefficent in terms of Memory tradeoff
+
                                 Array.Sort(sortBuffer);
                                 cursorIndex = 0;
-                                    // lock(cl4) {
-                                    // foreach (int num in sortBuffer) {
-                                        // Console.Write($"{num},");
-                                            messageQueue2.Add(new List<int>(sortBuffer));
-                                            messageQueue3.Add(new List<int>(sortBuffer));
-                                            // Console.WriteLine("-----{0}",messageQueue2.Count);
-                                        // }
-                                    // }}
-                                // }
+  
+                                foreach (int num in sortBuffer)
+                                {
+                                    messageQueue2.Add(num);
+                                    messageQueue3.Add(num);
+                                }
                             }
                         }
                     // }
@@ -177,6 +177,7 @@ class Program
     {
         // lock(cl4) {
         var sbuilder = new StringBuilder();
+        int nextInt = 0;
         while (true)
         {
             // lock(cl4) {
@@ -185,102 +186,41 @@ class Program
                 // try
                 // {
                     // lock(cl3) {
-                    List<int> nextInt;
                     try
                     {
                         if (messageQueue2.TryTake(out nextInt))
                         {
-                            // foreach (int num in nextList)
-                            // {
-                            //     sbuilder.Append(num).Append(Environment.NewLine);
-                                
-                            //     Console.WriteLine("++++++++++{0}", sbuilder.Length);
-                                
-                                // if (sbuilder.Length > SORTER_BATCH_SIZE)
-                                // {
-                                    foreach (int num in nextInt)
-                                    {
-                                        sbuilder.Append(num)
-                                                .Append(Environment.NewLine);
-                                    }
-                                    sbuilder.Append(Environment.NewLine).Append(Environment.NewLine);
-        
-                                    File.AppendAllText(
-                                        sortedFilePath,
-                                        sbuilder.ToString()
-                                    );
-                                    // Console.WriteLine("-----------------Write To Sortedddddddddddddddd Files------------------");
-                                    sbuilder.Length = 0;
-                                // }
-                            // }
+                            int generatorIndex = -1;
+                            if (generatorDict.TryGetValue(nextInt, out generatorIndex))
+                            {
+                                sbuilder.Length = 0;
+
+                                sbuilder.Append(nextInt)
+                                    .Append(',')
+                                    .Append(generatorName[generatorIndex]);
+
+                                sw.WriteLine(sbuilder.ToString());
+                                sw.Flush();
+
+                                Console.WriteLine("00000000000000000000000000 {0}", nextInt);
+                            }
                         }
                     }
-                    catch (OperationCanceledException)
+                    catch (Exception)
                     {
                         Console.WriteLine("Taking canceled.");
                         break;
                     }
-                    // }
-                // }
-                // catch (InvalidOperationException) {
-                //     Console.WriteLine("Error Adding To Message Queue!");
-                // }
+
             }
-            // }
-            // if (messageQueue.Count > 0)
-            // {
-            //     if (cursorIndex == SORTER_BATCH_SIZE) {
-            //         Array.Sort(sortBuffer);
-            //         foreach (int num in sortBuffer) {
-            //             Console.Write($"{num},");
-            //         }
-            //         cursorIndex = 0;
-            //         // queueSorter100ToWriterB.Enqueue(WRITE_FILE_SIGNAL);
-            //         // Console.WriteLine(sortBuffer.Join(","));
-            //     }
-            //     messageQueue.TryTake(out sortBuffer[cursorIndex]);
-            //     ++cursorIndex;
-            // }
         }
-        //}
-            // var sbuilder = new StringBuilder();
-            // lock(cl4) {
-            // while (true)
-            // {
-            //     // lock(cl4) {
-            //     if (queueSorter100ToWriterB.Count > 0)
-            //     {
-            //         // if (cursorIndex == SORTER_BATCH_SIZE) {
-            //         //     Array.Sort(sortBuffer);
-            //         //     foreach (int num of sortBuffer) {
-            //         //         Console.Write($"{num},");
-            //         //     }
-            //         //     cursorIndex = 0;
-            //         // }
-            //         // sortBuffer[cursorIndex] = messageQueue.Dequeue();
-            //         // ++cursorIndex;
-                    
-            //         // form a StringBuilder before write to file to avoid access file to many times
-            //         sbuilder.Append(queueSorter100ToWriterB.Dequeue()).Append(Environment.NewLine);
-                    
-            //         Console.WriteLine("++++++++++{0}", sbuilder.Length);
-                    
-            //         if (sbuilder.Length > SORTER_BATCH_SIZE)
-            //         {
-            //             Console.WriteLine(sbuilder.ToString());
-            //             Console.WriteLine("-----------------Write To Files------------------");
-            //             sbuilder.Length = 0;
-            //         }
-            //     }
-            // }
-            // }
-        // }
     }
 
     private static void taskFilterPrimeNumber()
     {
         // lock(cl4) {
         // var sbuilder = new StringBuilder();
+        int nextInt = 0;
         while (true)
         {
             // lock(cl4) {
@@ -289,24 +229,23 @@ class Program
                 // try
                 // {
                     // lock(cl3) {
-                    List<int> nextIntList;
                     try
                     {
-                        if (messageQueue3.TryTake(out nextIntList))
+                        if (messageQueue3.TryTake(out nextInt))
                         {
-                            foreach (int num in nextIntList)
-                            {
-                                if (isPrimePreChecked(num)) {
-                                    messageQueue4.Add(num);
-                                    Console.WriteLine("888888888888888888: {0}", num);
+                            // foreach (int num in nextIntList)
+                            // {
+                                if (isPrimePreChecked(nextInt)) {
+                                    messageQueue4.Add(nextInt);
+                                    Console.WriteLine("888888888888888888: {0}", nextInt);
                                 }
-                            }
+                            // }
                             // Console.WriteLine(String.Join(Environment.NewLine, nextInt));
                             // Console.WriteLine("-----------------Write To Prime Files------------------");
                             // sbuilder.Length = 0;
                         }
                     }
-                    catch (OperationCanceledException)
+                    catch (Exception)
                     {
                         Console.WriteLine("Taking canceled.");
                         break;
@@ -325,55 +264,41 @@ class Program
     {
         // lock(cl4) {
         var sbuilder = new StringBuilder();
+        int nextInt = 0;
         while (true)
         {
-            // lock(cl4) {
             // Console.WriteLine("111111111111111 {0}");
             if (!messageQueue4.IsCompleted)
             {
                 // try
                 // {
                     // lock(cl3) {
-                    int nextInt = 0;
                     // Console.WriteLine("22222222222 {0}", nextInt);
                     try
                     {
                         if (messageQueue4.TryTake(out nextInt))
-                        {
-                            // foreach (int num in nextList)
-                            // {
-                                // append char or int each time give more atomicity than whole string
-                            Console.WriteLine("00000000000000000000 {0}", nextInt);
-                            sw.WriteLine(nextInt);
-                            //     sbuilder.Append(nextInt)
-                            //             .Append(Environment.NewLine);
-                                
-                            // //     Console.WriteLine("++++++++++{0}", sbuilder.Length);
-                                
-                            //     if (sbuilder.Length > SORTER_BATCH_SIZE)
-                            //     {
-                            //         sbuilder.Append(nextInt)
-                            //             .Append(Environment.NewLine)
-                            //             .Append(Environment.NewLine);
+                        {                            
+                            int generatorIndex = -1;
+                            if (generatorDict.TryGetValue(nextInt, out generatorIndex))
+                            {
+                                sbuilder.Length = 0;
 
-                            //         // Console.WriteLine(String.Join(Environment.NewLine, nextInt));using System;
-                            //         File.AppendAllText(primeFilePath, sbuilder.ToString());
-                            //         Console.WriteLine("-----------------Write To Primeeeeeeeeeeeeeeeeeeeeeeeeee Files------------------");
-                            //         sbuilder.Length = 0;
-                            //     }
-                            // }
+                                sbuilder.Append(nextInt)
+                                    .Append(',')
+                                    .Append(generatorName[generatorIndex]);
+
+                                sw.WriteLine(sbuilder.ToString());
+                                sw.Flush();
+
+                                Console.WriteLine("00000000000000000000000000 {0}", nextInt);
+                            }
                         }
                     }
-                    catch (OperationCanceledException)
+                    catch (Exception)
                     {
-                        Console.WriteLine("Taking canceled.");
+                        Console.WriteLine("Taking canceled");
                         break;
                     }
-                    // }
-                // }
-                // catch (InvalidOperationException) {
-                //     Console.WriteLine("Error Adding To Message Queue!");
-                // }
             }
             // }
 
