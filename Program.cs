@@ -56,6 +56,9 @@ class Program
     static readonly BlockingCollection<List<int>> messageQueue2 = new BlockingCollection<List<int>>();
     static readonly BlockingCollection<List<int>> messageQueue3 = new BlockingCollection<List<int>>();
     static readonly BlockingCollection<int> messageQueue4 = new BlockingCollection<int>();
+
+    static readonly Semaphore _pool = new Semaphore(initialCount: 0, maximumCount: 4);
+
     // static readonly Queue<int> queueSorter100ToWriterB = new Queue<int>();
     
     // static readonly BufferBlock<int> messageQueue = new BufferBlock<int>();
@@ -71,11 +74,11 @@ class Program
             var numGenerator2 = Task.Run( () => taskNumberGenerator("RNG2", 1001, 2000));
             var numGenerator3 = Task.Run( () => taskNumberGenerator("RNG3", 2001, 3000));
 
-            var primeFilter = Task.Run( () => taskFilterPrimeNumber());
+            // var primeFilter = Task.Run( () => taskFilterPrimeNumber());
             var first100Sorter = Task.Run( () => taskSortBatchNumber(SORTER_BATCH_SIZE));
             
-            var writerB = Task.Run( () => taskWriteLineToSortedFile() );
-            var writerA = Task.Run( () => taskWriteLineToPrimeFile() );
+            // var writerB = Task.Run( () => taskWriteLineToSortedFile() );
+            // var writerA = Task.Run( () => taskWriteLineToPrimeFile() );
 
             // first100Sorter.Start();
 
@@ -87,14 +90,17 @@ class Program
 
             // numberGeneratorWorker.Start();
             // showMessageQueueInfoWorker.Start();
+            Console.WriteLine("Main thread calls Release All");
+            _pool.Release(releaseCount: 4);
+
             Task.WaitAll(
                 numGenerator1,
                 numGenerator2,
                 numGenerator3,
-                first100Sorter,
-                primeFilter,
-                writerA,
-                writerB
+                first100Sorter
+                // primeFilter,
+                // writerA,
+                // writerB
             );
 
             // cts.Dispose();
@@ -108,8 +114,10 @@ class Program
         // lock(lck) {
             for (int i=0; ; ++i) {
                 Int32 randomInt = (new Random()).Next(minInt, maxInt);
+                _pool.WaitOne();
                 messageQueue.Add(randomInt);
                 Console.WriteLine($"{name}: {randomInt} --> QueueCount:{messageQueue.Count}");
+                _pool.Release();
             }
         // }
         // Thread.Sleep(5000);
@@ -122,8 +130,9 @@ class Program
         // lock(cl4) {
         while (true)
         {
-            if (!messageQueue.IsCompleted)
-            {
+            _pool.WaitOne();
+            // if (!messageQueue.IsCompleted)
+            // {
                 // try
                 // {
                     // lock(cl3) {
@@ -159,7 +168,7 @@ class Program
                 // catch (InvalidOperationException) {
                 //     Console.WriteLine("Error Adding To Message Queue!");
                 // }
-            }
+            // }
             // if (messageQueue.Count > 0)
             // {
             //     if (cursorIndex == SORTER_BATCH_SIZE) {
@@ -174,6 +183,7 @@ class Program
             //     messageQueue.TryTake(out sortBuffer[cursorIndex]);
             //     ++cursorIndex;
             // }
+            _pool.Release();
         }
         //}
     }
@@ -204,7 +214,7 @@ class Program
                                 // if (sbuilder.Length > SORTER_BATCH_SIZE)
                                 // {
                                     Console.WriteLine(String.Join(Environment.NewLine, nextInt));
-                                    Console.WriteLine("-----------------Write To Files------------------");
+                                    Console.WriteLine("-----------------Write To Sortedddddddddddddddd Files------------------");
                                     sbuilder.Length = 0;
                                 // }
                             // }
