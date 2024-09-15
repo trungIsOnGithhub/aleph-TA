@@ -27,6 +27,7 @@ class Program
     static readonly SemaphoreSlim s3 = new SemaphoreSlim(0,1);
 
     static readonly string[] generatorName = {"RNG1", "RNG2", "RNG3"};
+    // Multiple Threads Reading from 1 Array Is Safe If DATA Not Modified, and Array Is Filled After Thread Run
     // static readonly int WRITE_FILE_SIGNAL = 1;
 
     // static readonly Stopwatch timer = new Stopwatch();
@@ -232,14 +233,20 @@ class Program
 
                                 Console.WriteLine("00000000000000000000000000 {0}", nextInt);
                             }
+
+                            // Measured Memory Used(Virtual and Mapped) After a Pipeline Done, The Same Between Threads in Process
+                            using(Process currentProc = Process.GetCurrentProcess())
+                            {
+                                Console.WriteLine("Physical Memory Used: {0} bytes", currentProc.WorkingSet64);
+                            }
                         }
+                        
                     }
                     catch (Exception)
                     {
                         Console.WriteLine("Taking canceled.");
                         break;
                     }
-
             // }
         }
     }
@@ -342,6 +349,12 @@ class Program
 
                                 Console.WriteLine("JJJJJJJJJJJJJJJJJJJJ {0}", nextInt);
                             }
+
+                            // Measured Memory Used(Virtual and Mapped) After a Pipeline Done, The Same Between Threads in Process
+                            using(Process currentProc = Process.GetCurrentProcess())
+                            {
+                                Console.WriteLine("11111Physical Memory Used: {0} bytes", currentProc.WorkingSet64);
+                            }
                         }
                     }
                     catch (Exception)
@@ -351,7 +364,6 @@ class Program
                     }
             // }
             // }
-
         }
     }
 
