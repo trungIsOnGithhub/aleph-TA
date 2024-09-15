@@ -10,7 +10,7 @@ using System.Runtime.InteropServices;
 
 // https://learn.microsoft.com/en-us/dotnet/api/system.threading.semaphoreslim?view=net-8.0
 // https://stackoverflow.com/questions/62814/difference-between-binary-semaphore-and-mutex
-// https://stackoverflow.com/questions/10010748/what-are-the-differences-between-concurrentqueue-and-blockingcollection-in-net
+// https://stackoverflow.com/questions/10010748/what-are-the-differences-between-concurrentqueue-and-ConcurrentQueue-in-net
 // https://jeremyshanks.com/fastest-way-to-write-text-files-to-disk-in-c/
 
 class Program
@@ -22,6 +22,9 @@ class Program
     static readonly int SORTER_BATCH_SIZE = 21;
 
     static readonly SemaphoreSlim _pool = new SemaphoreSlim(0,1);
+    static readonly SemaphoreSlim s1 = new SemaphoreSlim(0,1);
+    static readonly SemaphoreSlim s2 = new SemaphoreSlim(0,1);
+    static readonly SemaphoreSlim s3 = new SemaphoreSlim(0,1);
 
     static readonly string[] generatorName = {"RNG1", "RNG2", "RNG3"};
     // static readonly int WRITE_FILE_SIGNAL = 1;
@@ -36,10 +39,9 @@ class Program
 
     // Thread-Safe version of Queue but Lock-Free, Need Concurrency Control
     static readonly ConcurrentQueue<int> messageQueue = new ConcurrentQueue<int>();
-
-    static readonly BlockingCollection<int> messageQueue2 = new BlockingCollection<int>();
-    static readonly BlockingCollection<int> messageQueue3 = new BlockingCollection<int>();
-    static readonly BlockingCollection<int> messageQueue4 = new BlockingCollection<int>();
+    static readonly ConcurrentQueue<int> messageQueue2 = new ConcurrentQueue<int>();
+    static readonly ConcurrentQueue<int> messageQueue3 = new ConcurrentQueue<int>();
+    static readonly ConcurrentQueue<int> messageQueue4 = new ConcurrentQueue<int>();
 
     static readonly ConcurrentDictionary<int,int> generatorDict = new ConcurrentDictionary<int,int>();
 
@@ -61,6 +63,10 @@ class Program
         // Start Allow 1 Thread to enter Semaphore
         // which was previously 0 mean no thread is able to enter
         _pool.Release(1);
+        s1.Release(1);
+        s2.Release(1);
+        s3.Release(1);
+
         Task.WaitAll(
             numGenerator1,
             numGenerator2,
@@ -72,6 +78,9 @@ class Program
         );
 
         _pool.Dispose();
+        s1.Dispose();
+        s2.Dispose();
+        s3.Dispose();
         sw.Dispose();
         pw.Dispose();
 
@@ -83,8 +92,8 @@ class Program
     private static void taskNumberGenerator(int generatorIndex, int seed) {
         var randomizer = new Random(seed);
 
-        for (int i=0; i<7; ++i) {
-            int randomInt = randomizer.Next(1, 10000);
+        for (int i=0; i<100; ++i) {
+            int randomInt = randomizer.Next(1, 100000);
 
             // using SemaphoreSlim must ensure wait time is short
             _pool.Wait();
@@ -138,8 +147,17 @@ class Program
   
                                 foreach (int num in sortBuffer)
                                 {
-                                    messageQueue2.Add(num);
-                                    messageQueue3.Add(num);
+                                    s1.Wait();
+                                    messageQueue2.Enqueue(num);
+                                    s1.Release();
+
+                                    Console.WriteLine("========= {0}", num);
+                                }
+                                foreach (int num in sortBuffer)
+                                {
+                                    s2.Wait();
+                                    messageQueue3.Enqueue(num);
+                                    s2.Release();
                                 }
                             }
                         }
@@ -181,14 +199,24 @@ class Program
         while (true)
         {
             // lock(cl4) {
-            if (!messageQueue2.IsCompleted)
-            {
+            // if (!messageQueue2.IsCompleted)
+            // {
                 // try
                 // {
                     // lock(cl3) {
                     try
                     {
-                        if (messageQueue2.TryTake(out nextInt))
+                        var takeOutSuccess = false;
+                        s1.Wait();
+                        // takeOutSuccess = messageQueue.Count > 0;
+                        if (messageQueue2.Count > 0) {
+                            takeOutSuccess = messageQueue2.TryDequeue(out nextInt);
+                            Console.WriteLine("Queue 2 Taked ((++++++++++++++++++++{0}", nextInt);
+                            Console.WriteLine($"Queue 2 Count: {messageQueue2.Count}");
+                        }
+                        s1.Release();
+
+                        if (takeOutSuccess)
                         {
                             int generatorIndex = -1;
                             if (generatorDict.TryGetValue(nextInt, out generatorIndex))
@@ -212,7 +240,7 @@ class Program
                         break;
                     }
 
-            }
+            // }
         }
     }
 
@@ -224,19 +252,31 @@ class Program
         while (true)
         {
             // lock(cl4) {
-            if (!messageQueue3.IsCompleted)
-            {
+            // if (!messageQueue3.IsCompleted)
+            // {
                 // try
                 // {
                     // lock(cl3) {
                     try
                     {
-                        if (messageQueue3.TryTake(out nextInt))
+                        var takeOutSuccess = false;
+                        s2.Wait();
+                        // takeOutSuccess = messageQueue.Count > 0;
+                        if (messageQueue3.Count > 0) {
+                            takeOutSuccess = messageQueue3.TryDequeue(out nextInt);
+                            Console.WriteLine("Queue 3 Taked ((++++++++++++++++++++{0}", nextInt);
+                            Console.WriteLine($"Queue 3 Count: {messageQueue3.Count}");
+                        }
+                        s2.Release();
+
+                        if (takeOutSuccess)
                         {
                             // foreach (int num in nextIntList)
                             // {
                                 if (isPrimePreChecked(nextInt)) {
-                                    messageQueue4.Add(nextInt);
+                                    s3.Wait();
+                                    messageQueue4.Enqueue(nextInt);
+                                    s3.Release();
                                     Console.WriteLine("888888888888888888: {0}", nextInt);
                                 }
                             // }
@@ -255,7 +295,7 @@ class Program
                 // catch (InvalidOperationException) {
                 //     Console.WriteLine("Error Adding To Message Queue!");
                 // }
-            }
+            // }
             // }
         }
     }
@@ -268,15 +308,25 @@ class Program
         while (true)
         {
             // Console.WriteLine("111111111111111 {0}");
-            if (!messageQueue4.IsCompleted)
-            {
+            // if (!messageQueue4.IsCompleted)
+            // {
                 // try
                 // {
                     // lock(cl3) {
                     // Console.WriteLine("22222222222 {0}", nextInt);
                     try
                     {
-                        if (messageQueue4.TryTake(out nextInt))
+                        var takeOutSuccess = false;
+                        s3.Wait();
+                        // takeOutSuccess = messageQueue.Count > 0;
+                        if (messageQueue4.Count > 0) {
+                            takeOutSuccess = messageQueue4.TryDequeue(out nextInt);
+                            Console.WriteLine("Queue 4 Taked ((++++++++++++++++++++{0}", nextInt);
+                            Console.WriteLine($"Queue 4 Count: {messageQueue4.Count}");
+                        }
+                        s3.Release();
+
+                        if (takeOutSuccess)
                         {                            
                             int generatorIndex = -1;
                             if (generatorDict.TryGetValue(nextInt, out generatorIndex))
@@ -287,10 +337,10 @@ class Program
                                     .Append(',')
                                     .Append(generatorName[generatorIndex]);
 
-                                sw.WriteLine(sbuilder.ToString());
-                                sw.Flush();
+                                pw.WriteLine(sbuilder.ToString());
+                                pw.Flush();
 
-                                Console.WriteLine("00000000000000000000000000 {0}", nextInt);
+                                Console.WriteLine("JJJJJJJJJJJJJJJJJJJJ {0}", nextInt);
                             }
                         }
                     }
@@ -299,7 +349,7 @@ class Program
                         Console.WriteLine("Taking canceled");
                         break;
                     }
-            }
+            // }
             // }
 
         }
