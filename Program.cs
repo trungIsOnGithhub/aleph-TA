@@ -59,8 +59,8 @@ class Program
         var primeFilter = Task.Run( () => taskFilterPrimeNumber()) ;
         var first1000Sorter = Task.Run( () => taskSortBatchNumber() );
         
-        var writerB = Task.Run( () => taskWriteLineToSortedFile() );
-        var writerA = Task.Run( () => taskWriteLineToPrimeFile() );
+        var writerB = Task.Run( () => taskWriteToSortedTxt() );
+        var writerA = Task.Run( () => taskWriteToPrimesTxt() );
         // Async and Await May Good For I/O Bound Operation, Not CPU-Bound So
         // I Decided Not To Use ITiti
 
@@ -176,7 +176,7 @@ class Program
         //}
     }
 
-    private static void taskWriteLineToSortedFile()
+    private static void taskWriteToSortedTxt()
     {
         // Use String Builder For Appending Efficency
         var sbuilder = new StringBuilder();
@@ -269,7 +269,7 @@ class Program
         }
     }
 
-    private static void taskWriteLineToPrimeFile()
+    private static void taskWriteToPrimesTxt()
     {
         var sbuilder = new StringBuilder();
         int nextInt = 0;
