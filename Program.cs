@@ -52,6 +52,7 @@ class Program
         var nowTime = DateTime.Now;
 
         // Task.Run Consider The Ligtweight Version of StartNew()
+        // Seeded Number Random By System Time Hour, Minute, Second
         var numGenerator1 = Task.Run( () => taskNumberGenerator(0, nowTime.Hour) );
         var numGenerator2 = Task.Run( () => taskNumberGenerator(1, nowTime.Minute) );
         var numGenerator3 = Task.Run( () => taskNumberGenerator(2, nowTime.Second) );
@@ -173,7 +174,6 @@ class Program
                 }
             }
         }
-        //}
     }
 
     private static void taskWriteToSortedTxt()
@@ -211,7 +211,7 @@ class Program
                         sw.WriteLine(sbuilder.ToString());
                         sw.Flush();
 
-                        Console.WriteLine("00000000000000000000000000 {0}", nextInt);
+                        // Console.WriteLine("00000000000000000000000000 {0}", nextInt);
                         ++countWritten;
                     }
 
@@ -303,14 +303,13 @@ class Program
                         pw.WriteLine(sbuilder.ToString());
                         pw.Flush();
 
-                        Console.WriteLine("JJJJJJJJJJJJJJJJJJJJ {0}", nextInt);
                         ++countWritten;
                     }
 
                     // Measured Memory Used(Virtual and Mapped) After a Pipeline Done, The Same Between Threads in Process
                     using(Process currentProc = Process.GetCurrentProcess())
                     {
-                        Console.WriteLine("11111Physical Memory Used: {0} bytes", currentProc.WorkingSet64);
+                        Console.WriteLine("Physical Memory Used: {0} bytes", currentProc.WorkingSet64);
                     }
 
                     Console.WriteLine("Speed Write To primes.txt: ~{0}", countWritten/timer.Elapsed.TotalSeconds);
